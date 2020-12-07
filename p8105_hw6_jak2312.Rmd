@@ -81,16 +81,10 @@ models_results_df %>%
 
 birthweight_df = read_csv("./data/birthweight.csv") %>% 
   mutate(
-    babysex = as.factor(babysex),
-    babysex = fct_recode(babysex, "male" = '1', "female" = '2'),
-    frace = as.factor(frace),
-    malform = as.factor(malform),
-    mrace = as.factor(mrace),
-    mrace = fct_recode(mrace, 
-                       "white" = '1',
-                       "black" = '2',
-                       "asian" = '3',
-                       "puerto_rican" = '4')
+    babysex = factor(babysex, labels = c("male", "female")),
+    frace = factor(frace),
+    malform = factor(malform),
+    mrace = factor(mrace, labels = c("white", "black", "asian", "puerto_rican"))
   )
 
 ```
@@ -126,8 +120,43 @@ birthweight_df %>%
 ```
 
 ```{r given_models}
-given_1 = lm(bwt ~ blength + gaweeks)
+given_1 = lm(bwt ~ blength + gaweeks, data = birthweight_df)
 
-given_2 = lm(bwt ~ bhead * blength * babysex)
+given_2 = lm(bwt ~ bhead * blength * babysex, data = birthweight_df)
 ```
 
+```{r cross_val}
+set.seed(1)
+cv_df = 
+  crossv_mc(birthweight_df, 100) %>% 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  ) %>% 
+  mutate(
+    my_mod = map(train, ~hypoth_model),
+    given_mod_1 = map(train, ~given_1),
+    given_mod_2 = map(train, ~given_2)
+  ) %>% 
+  mutate(
+    rmse_my_mod = map2_dbl(my_mod, test, ~rmse(model = .x, data = .y)),
+    rmse_given_1 = map2_dbl(given_mod_1, test, ~rmse(model = .x, data = .y)),
+    rmse_given_2 = map2_dbl(given_mod_2, test, ~rmse(model = .x, data = .y))
+  )
+```
+
+```{r compare_models}
+cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) %>% 
+  mutate(model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) +
+  geom_violin()
+```
+
+From this graph showing densities of the RMSE for each model, we can see that the given model 2 using head circumference, length, sex, and their interactions is the clear winner. My model had the largest RMSE values of the three models anecdotally showing that using automated approaches is not the ideal way to make model, but instead a way of reducing variables from a full model.
